@@ -3,7 +3,8 @@ use rand::rngs::ThreadRng;
 
 use super::CharSet;
 
-const EN_WORDS: &[u8] = include_bytes!("../../data/en/popular.txt");
+//const EN_WORDS: &[u8] = include_bytes!("../../data/en/popular.txt");
+const EN_WORDS: &[u8] = include_bytes!("../../data/en/shavian.txt");
 
 #[derive(Debug, Clone)]
 pub struct Dictionary {
