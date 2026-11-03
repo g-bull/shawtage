@@ -53,6 +53,10 @@ impl Shaw {
         }
     }
 
+    pub fn clear(&mut self) {
+        self.partial_char = None;        
+    }
+
     fn complete(&mut self) {
         if !self.partial_char.is_none() {
             (self.complete_callback)(self.partial_char.unwrap());
@@ -124,28 +128,6 @@ impl Shaw {
                         self.make_partial(shaw);
                         self.complete();
                     }                        
-                },
-                '‹' => {
-                    if self.partial_char == Some('‹') {
-                        self.make_partial('«');   
-                        self.complete();
-                    }
-                    else {
-                        self.complete();
-                        self.make_partial(shaw);
-                        self.complete();
-                    }                                             
-                },
-                '›' => {
-                    if self.partial_char == Some('›') {
-                        self.make_partial('»');   
-                        self.complete();
-                    }
-                    else {
-                        self.complete();
-                        self.make_partial(shaw);
-                        self.complete();
-                    }                                             
                 },
                 '𐑮' => {
                     match self.partial_char {

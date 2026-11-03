@@ -1,23 +1,25 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use shawtage::data::words;
 use shawtage::data::words::Words;
 
 use crossterm::{
     cursor::MoveTo,
-    style::Print,
     //Result,
 };
+use crossterm::style::{Color, Print, ResetColor, SetForegroundColor};
+
 use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyModifiers},
     execute, terminal,
 };
-use std::io::{self, stdout, Write};
+use std::io::{self, stdout};
 use std::time::{Duration, Instant};
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashSet};
+
+use std::convert::TryFrom;
 
 mod jafl;
 use jafl::Shaw;
@@ -28,9 +30,12 @@ struct Pos {
 }
 struct State {
     line: String,
+    next_line: String,
     typed: Vec<char>,
+    errors: Vec<char>,
     partial_char: Option<char>,
     line_pos: Pos,
+    next_line_pos: Pos,
     typed_pos: Pos,
     partial_pos: Pos,
 }
@@ -44,31 +49,64 @@ impl State {
 
         Self {
             line: words.line(CHARS_PER_LINE, &least_accurate),
+            next_line: words.line(CHARS_PER_LINE, &least_accurate),
             typed: Vec::new(),
+            errors: Vec::new(),
             partial_char: None,
             line_pos: Pos{row: 3, col: 10},
-            typed_pos: Pos{row: 4, col: 10},
-            partial_pos: Pos{row: 5, col: 10},
+            next_line_pos: Pos{row: 6, col: 10},
+            typed_pos: Pos{row: 3, col: 10},
+            partial_pos: Pos{row: 4, col: 10},
         }
     }
 
-    fn _display(&self, pos: &Pos, s: &String) {
+    fn _display(&self, pos: &Pos, s: &String, color: Color) {
         let mut stdout = io::stdout();
 
-        let result = execute!(
+        let _result = execute!(
             stdout,
             MoveTo(pos.col, pos.row),
-            Print(s)
+            SetForegroundColor(color),
+            Print(s),
+            ResetColor
         );
     }
 
     fn update_display(&self)
     {
+        const COLOR_OK: Color      = Color::DarkGreen;   
+        const COLOR_ERROR: Color   = Color::Red;  
+        const COLOR_PARTIAL: Color = Color::DarkYellow;
+        const COLOR_LINE: Color  = Color::White;
+        const COLOR_NEXT: Color  = Color::Grey;
+
+        let clear_line = " ".repeat(52);
+        self._display(&self.line_pos, &clear_line, COLOR_LINE);
+        self._display(&self.next_line_pos, &clear_line, COLOR_NEXT);
+        self._display(&self.typed_pos, &clear_line, COLOR_OK);
+        self._display(&self.partial_pos, &clear_line, COLOR_PARTIAL);
+
+
+        self._display(&self.line_pos, &self.line, COLOR_LINE);
+        self._display(&self.next_line_pos, &self.next_line, COLOR_NEXT);
+
         let typed_s: String = self.typed.clone().into_iter().collect();
+        self._display(&self.typed_pos, &typed_s, COLOR_OK);
+
+        let error_pos = Pos {row: self.typed_pos.row, 
+                            col: self.typed_pos.col
+                                + self.typed.len() as u16};
+
+        let error_s: String = self.errors.clone().into_iter().collect();
+        self._display(&error_pos, &error_s, COLOR_ERROR);
+
+        let pos = Pos {row: self.partial_pos.row, 
+                            col: self.partial_pos.col 
+                                + self.typed.len() as u16
+                                + self.errors.len() as u16};
+
         let partial_s: String = self.partial_char.into_iter().collect();
-        self._display(&self.line_pos, &self.line);
-        self._display(&self.typed_pos, &typed_s);
-        self._display(&self.partial_pos, &partial_s);
+        self._display(&pos, &partial_s, COLOR_PARTIAL);
     }
 
     fn partial(&mut self, c: char) {
@@ -77,12 +115,30 @@ impl State {
 
     fn push(&mut self, c: char) {
         self.partial_char = None;
-        self.typed.push(c);
+
+        // If c doesn't match the equivalent position in the target,
+        // or there are already errors, push c to errors, 
+        // other wise push it to typed.
+        let target = self.line.chars().nth(self.typed.len());
+        if self.errors.len() > 0
+            || target.is_none() /* typed past end of line */
+            || target.unwrap() != c
+        {
+            self.errors.push(c);
+        }
+        else {
+            self.typed.push(c);
+        }
     }
 
-    fn pop(&mut self, c: char) -> Option<char> {
+    fn pop(&mut self) -> Option<char> {
         if self.partial_char.is_none() {
-            return self.typed.pop();
+            if self.errors.len() > 0 {
+                return self.errors.pop();
+            }
+            else {
+                return self.typed.pop();
+            }
         }
         else {
             let result = self.partial_char;
@@ -151,7 +207,10 @@ fn main() -> io::Result<()> {
                         break 'gameloop
                     }
 
-                    KeyCode::Backspace => { /* Move Up */ }
+                    KeyCode::Backspace => { 
+                        (*state).borrow_mut().pop();
+                        transliterator.clear();
+                    }
 
                     // Game controls
                     KeyCode::Up    => { /* Move Up */ }
