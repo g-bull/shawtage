@@ -3,6 +3,7 @@ use std::rc::Rc;
 
 use shawtage::data::words::Words;
 
+
 use crossterm::{
     cursor::MoveTo,
     //Result,
@@ -17,7 +18,7 @@ use crossterm::{
 use std::io::{self, stdout};
 use std::time::{Duration, Instant};
 
-use std::collections::{HashSet};
+use std::collections::{HashSet, VecDeque};
 
 use std::convert::TryFrom;
 
@@ -29,6 +30,9 @@ struct Pos {
     col: u16,
 }
 struct State {
+    least_accurate: HashSet<char>,
+    using_chars: HashSet<char>,
+    unused_chars: VecDeque<char>,
     line: String,
     next_line: String,
     typed: Vec<char>,
@@ -38,18 +42,38 @@ struct State {
     next_line_pos: Pos,
     typed_pos: Pos,
     partial_pos: Pos,
+    message_pos: Pos,
 }
 impl State {
 
-    fn new(chars: Vec<char>, needs_improvement: Vec<char>) -> Self {
-        let char_set: HashSet<char> = chars.iter().cloned().collect();
-        let mut words = Words::dictionary(char_set);
-        let least_accurate = needs_improvement.iter().cloned().collect();
-        const CHARS_PER_LINE: usize = 52;
+    const CHARS_PER_LINE: usize = 52;
+
+    fn new() -> Self {
+        let needs_improvement = vec![];
+                //'𐑧', '𐑴', '𐑱', '𐑲', '𐑒', '𐑜', '𐑢', '𐑘', '𐑷',];
+        let mut letter_order: VecDeque<char> = vec![
+            '𐑦', '𐑩', '𐑰', '𐑨', '𐑮', '𐑕', '𐑛', '𐑯', '𐑑', '𐑥', 
+            '𐑤', '𐑼', '𐑳', '𐑻', '𐑧', '𐑪', '𐑢', '𐑵', '𐑸', '𐑭',
+            '𐑿', '𐑷', '𐑘', '𐑖', '𐑡', '𐑙', '𐑗', '𐑫', '𐑓', '𐑹',
+            '𐑚', '𐑟', '𐑝', '𐑠', '𐑞', '𐑔', '𐑐', '𐑒', '𐑜', '𐑣',
+            '𐑴', '𐑱','𐑺', '𐑲', '𐑬', '𐑶', '𐑾', '𐑽'
+        ].into();
+        let mut using_chars: HashSet<char> = HashSet::new();
+        for _ in 0..6 {
+            if let Some(c) = letter_order.pop_front() {
+                using_chars.insert(c);
+            }
+        }
+
+        let mut words = Words::dictionary(using_chars.clone());
+        let least_accurate: HashSet<char> = needs_improvement.iter().cloned().collect();
 
         Self {
-            line: words.line(CHARS_PER_LINE, &least_accurate),
-            next_line: words.line(CHARS_PER_LINE, &least_accurate),
+            least_accurate: least_accurate.clone(),
+            using_chars: using_chars,
+            unused_chars: letter_order,
+            line: words.line(Self::CHARS_PER_LINE, &least_accurate),
+            next_line: words.line(Self::CHARS_PER_LINE, &least_accurate),
             typed: Vec::new(),
             errors: Vec::new(),
             partial_char: None,
@@ -57,6 +81,7 @@ impl State {
             next_line_pos: Pos{row: 6, col: 10},
             typed_pos: Pos{row: 3, col: 10},
             partial_pos: Pos{row: 4, col: 10},
+            message_pos: Pos{row: 2, col: 30},
         }
     }
 
@@ -79,8 +104,9 @@ impl State {
         const COLOR_PARTIAL: Color = Color::DarkYellow;
         const COLOR_LINE: Color  = Color::White;
         const COLOR_NEXT: Color  = Color::Grey;
+        const COLOR_MESSAGE: Color = Color::Yellow;
 
-        let clear_line = " ".repeat(52);
+        let clear_line = " ".repeat(self.line.chars().count());
         self._display(&self.line_pos, &clear_line, COLOR_LINE);
         self._display(&self.next_line_pos, &clear_line, COLOR_NEXT);
         self._display(&self.typed_pos, &clear_line, COLOR_OK);
@@ -107,6 +133,13 @@ impl State {
 
         let partial_s: String = self.partial_char.into_iter().collect();
         self._display(&pos, &partial_s, COLOR_PARTIAL);
+
+        
+        let message = format!("errors: {}. typed: {}, line: {} ",
+                            self.errors.len(), 
+                            self.typed.len(), 
+                            self.line.chars().count());
+        self._display(&self.message_pos, &message, COLOR_MESSAGE);
     }
 
     fn partial(&mut self, c: char) {
@@ -116,18 +149,33 @@ impl State {
     fn push(&mut self, c: char) {
         self.partial_char = None;
 
-        // If c doesn't match the equivalent position in the target,
-        // or there are already errors, push c to errors, 
-        // other wise push it to typed.
-        let target = self.line.chars().nth(self.typed.len());
-        if self.errors.len() > 0
-            || target.is_none() /* typed past end of line */
-            || target.unwrap() != c
-        {
-            self.errors.push(c);
+        // Only push if that won't overflow the line.
+        if (self.errors.len() + self.typed.len()) < self.line.chars().count() {
+            // If c doesn't match the equivalent position in the target,
+            // or there are already errors, push c to errors, 
+            // other wise push it to typed.
+            let target = self.line.chars().nth(self.typed.len());
+            if self.errors.len() > 0
+                || target.is_none() /* typed past end of line? */
+                || target.unwrap() != c
+            {
+                self.errors.push(c);
+            }
+            else {
+                self.typed.push(c);
+            }
         }
-        else {
-            self.typed.push(c);
+        if self.typed.len() == self.line.chars().count() {
+            // A line has been completed
+            self.typed.clear();
+            if let Some(c) = self.unused_chars.pop_front() {
+                self.using_chars.insert(c);
+            }
+            let mut words = Words::dictionary(self.using_chars.clone());
+            self.line = self.next_line.clone();
+            self.next_line = words.line(Self::CHARS_PER_LINE, &self.least_accurate);
+
+
         }
     }
 
@@ -150,12 +198,8 @@ impl State {
 }
 
 fn main() -> io::Result<()> {
-    let chars = vec!['𐑨', '𐑩', '𐑦', '𐑳', '𐑤', '𐑮', '𐑕', '𐑯',
-                '𐑧', '𐑰', '𐑥', '𐑑', '𐑛', '𐑓', '𐑾', '𐑽', '𐑼', '𐑻'];
-    let needs_improvement = vec!['𐑨', '𐑳', '𐑤', '𐑯',
-                '𐑧', '𐑓', '𐑾', '𐑽', '𐑼', '𐑻'];
 
-    let mut state = Rc::new(RefCell::new(State::new(chars, needs_improvement)));
+    let mut state = Rc::new(RefCell::new(State::new()));
     let callback_state1 = Rc::clone(&state);
     let callback_state2 = Rc::clone(&state);
 

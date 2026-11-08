@@ -17,6 +17,10 @@ impl Shaw {
         self.partial_callback = Box::new(callback);
     }
 
+    pub fn key_map(self) -> HashMap<char, char> {
+        self.map
+    }
+
     pub fn new() -> Self {
         Self {
             complete_callback: Box::new(|ev| println!("Default complete for: {ev}")),
