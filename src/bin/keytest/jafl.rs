@@ -1,20 +1,20 @@
 use std::collections::{HashMap};
 
+pub enum KeyEvent {
+    Complete(char),
+    Partial(char),
+}
+
 pub struct Shaw {
-    complete_callback: Box<dyn FnMut(char) + 'static>,
-    partial_callback: Box<dyn FnMut(char) + 'static>,
+    key_event_callback: Box<dyn FnMut(KeyEvent) + 'static>,
     partial_char: Option<char>,
     map : HashMap<char, char>,
 }
 
 impl Shaw {
 
-    pub fn set_complete_callback(&mut self, callback: impl FnMut(char) + 'static) {
-        self.complete_callback = Box::new(callback);
-    }
-
-    pub fn set_partial_callback(&mut self, callback: impl FnMut(char) + 'static) {
-        self.partial_callback = Box::new(callback);
+    pub fn set_callback(&mut self, callback: impl FnMut(KeyEvent) + 'static) {
+        self.key_event_callback = Box::new(callback);
     }
 
     pub fn key_map(self) -> HashMap<char, char> {
@@ -23,8 +23,7 @@ impl Shaw {
 
     pub fn new() -> Self {
         Self {
-            complete_callback: Box::new(|ev| println!("Default complete for: {ev}")),
-            partial_callback: Box::new(|ev| println!("Default partial for: {ev}")),
+            key_event_callback: Box::new(|_| println!("Default key_event_callback.")),
             partial_char: None,
             map: HashMap::from([
                 ('q', '𐑱'), ('w', '𐑧'), ('e', '𐑰'), ('r', '𐑥'), ('t', '𐑒'), 
@@ -63,14 +62,14 @@ impl Shaw {
 
     fn complete(&mut self) {
         if !self.partial_char.is_none() {
-            (self.complete_callback)(self.partial_char.unwrap());
+            (self.key_event_callback)(KeyEvent::Complete(self.partial_char.unwrap()));
             self.partial_char = None;
         }
     }
 
     fn make_partial(&mut self, c: char) {
         self.partial_char = Some(c);
-        (self.partial_callback)(c);
+        (self.key_event_callback)(KeyEvent::Partial(c));
     }
 
     pub fn apply (&mut self, latin : char) {

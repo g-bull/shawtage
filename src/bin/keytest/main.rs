@@ -24,6 +24,8 @@ use std::convert::TryFrom;
 
 mod jafl;
 use jafl::Shaw;
+use jafl::KeyEvent;
+
 
 struct Pos {
     row: u16,
@@ -142,40 +144,44 @@ impl State {
         self._display(&self.message_pos, &message, COLOR_MESSAGE);
     }
 
-    fn partial(&mut self, c: char) {
-        self.partial_char = Some(c);
-    }
+    fn push(&mut self, event : jafl::KeyEvent) {
 
-    fn push(&mut self, c: char) {
-        self.partial_char = None;
-
-        // Only push if that won't overflow the line.
-        if (self.errors.len() + self.typed.len()) < self.line.chars().count() {
-            // If c doesn't match the equivalent position in the target,
-            // or there are already errors, push c to errors, 
-            // other wise push it to typed.
-            let target = self.line.chars().nth(self.typed.len());
-            if self.errors.len() > 0
-                || target.is_none() /* typed past end of line? */
-                || target.unwrap() != c
-            {
-                self.errors.push(c);
+        match event {
+            jafl::KeyEvent::Partial(c) => {
+                self.partial_char = Some(c);
             }
-            else {
-                self.typed.push(c);
-            }
-        }
-        if self.typed.len() == self.line.chars().count() {
-            // A line has been completed
-            self.typed.clear();
-            if let Some(c) = self.unused_chars.pop_front() {
-                self.using_chars.insert(c);
-            }
-            let mut words = Words::dictionary(self.using_chars.clone());
-            self.line = self.next_line.clone();
-            self.next_line = words.line(Self::CHARS_PER_LINE, &self.least_accurate);
+            jafl::KeyEvent::Complete(c) => {
+                self.partial_char = None;
+
+                // Only push if that won't overflow the line.
+                if (self.errors.len() + self.typed.len()) < self.line.chars().count() {
+                    // If c doesn't match the equivalent position in the target,
+                    // or there are already errors, push c to errors, 
+                    // other wise push it to typed.
+                    let target = self.line.chars().nth(self.typed.len());
+                    if self.errors.len() > 0
+                        || target.is_none() /* typed past end of line? */
+                        || target.unwrap() != c
+                    {
+                        self.errors.push(c);
+                    }
+                    else {
+                        self.typed.push(c);
+                    }
+                }
+                if self.typed.len() == self.line.chars().count() {
+                    // A line has been completed
+                    self.typed.clear();
+                    if let Some(c) = self.unused_chars.pop_front() {
+                        self.using_chars.insert(c);
+                    }
+                    let mut words = Words::dictionary(self.using_chars.clone());
+                    self.line = self.next_line.clone();
+                    self.next_line = words.line(Self::CHARS_PER_LINE, &self.least_accurate);
 
 
+                }
+            }
         }
     }
 
@@ -200,8 +206,7 @@ impl State {
 fn main() -> io::Result<()> {
 
     let mut state = Rc::new(RefCell::new(State::new()));
-    let callback_state1 = Rc::clone(&state);
-    let callback_state2 = Rc::clone(&state);
+    let callback_state = Rc::clone(&state);
 
     // Setup terminal
     terminal::enable_raw_mode()?;
@@ -215,12 +220,8 @@ fn main() -> io::Result<()> {
 
     let mut transliterator = Shaw::new();
 
-    transliterator.set_partial_callback(move |c| {
-        (*callback_state1).borrow_mut().partial(c);
-    });
-
-    transliterator.set_complete_callback(move |c| {
-         (*callback_state2).borrow_mut().push(c);
+    transliterator.set_callback(move |c| {
+         (*callback_state).borrow_mut().push(c);
     });
 
     // Initial display.
