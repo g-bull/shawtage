@@ -22,9 +22,9 @@ use std::collections::{HashSet, VecDeque};
 
 use std::convert::TryFrom;
 
-mod jafl;
-use jafl::Shaw;
-use jafl::KeyEvent;
+use shawtage::jafl::Shaw;
+use shawtage::jafl::KeyEvent;
+use shawtage::jafl;
 
 
 struct Pos {
